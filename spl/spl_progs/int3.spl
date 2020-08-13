@@ -1,0 +1,88 @@
+alias physicalSP S0;
+physicalSP = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+alias sysCallNo S1;
+sysCallNo = [physicalSP - 1];
+alias filedesc S2;
+filedesc = [physicalSP - 4];
+alias currentPID S4;
+currentPID = (PTBR - 1024) / 8;
+alias currentPCB S5;
+currentPCB = READY_LIST + 32 * currentPID;
+alias pPFileTableIndex S6;
+pPFileTableIndex = filedesc * 2;
+alias fileTableIndex S7;
+fileTableIndex = currentPCB + pPFileTableIndex + 15;
+
+if(sysCallNo == 6) then									//SEEK
+	alias newLseek S3;
+	newLseek = [physicalSP - 3];						//get param
+	if(filedesc < 0 || filedesc > 7) then				//check for valid descriptor
+		[physicalSP -2] = -1;
+		ireturn;
+	endif;
+
+	if([fileTableIndex] == -1) then						//check for file existence in PPOFT
+		[physicalSP - 2] = -1;
+		ireturn;
+	endif;
+	
+	alias fatEntry S9;
+	fatEntry = [FILE_TABLE + ([fileTableIndex] * 2)];	//get FAT index from PPOFT and SWOFT
+	
+	alias fileSize S10;
+	fileSize = [FAT + (fatEntry * 8) + 1];				//get file size from FAT
+
+	if(newLseek < 0 || newLseek > fileSize) then		//check for valid lseek
+		[physicalSP - 2] = -1;
+		ireturn;
+	endif;
+
+	[currentPCB + pPFileTableIndex + 16] = newLseek;	//change lseek value
+	
+	[physicalSP - 2] = 0;
+	ireturn;
+endif;
+
+if(sysCallNo == 7) then									//READ
+	if(filedesc < 0 || filedesc > 7) then				//check for valid file descriptor
+		[physicalSP - 2] = -1;
+		ireturn;
+	endif;
+	
+	if([fileTableIndex] == -1) then						//check for file existence in PPOFT
+		[physicalSP - 2] = -1;
+		ireturn;
+	endif;
+	
+	alias lseek S8;
+	lseek = [fileTableIndex + 1];						//get lseek value
+	fileTableIndex = [fileTableIndex];					//get index of SWOFT
+
+	alias fatEntry S9;
+	fatEntry = [FILE_TABLE + (fileTableIndex * 2)];		//get address of SWOFT entry
+
+	alias fileSize S11;
+	fileSize = [FAT + (fatEntry * 8) + 1];				//get file size from FAT
+	
+	if(lseek >= fileSize) then							//check valid lseek through filesize
+		[physicalSP - 2] = -1;
+		ireturn;
+	endif;
+	
+	alias basicBlock S10;
+	basicBlock = [FAT + (fatEntry * 8) + 2];			//get basic block no from FAT
+	
+	load(1, basicBlock);								//load basic block to scratchpad
+	alias dataBlock S12;
+	dataBlock = [512 + (lseek / 512)];					//get datablock after lseek
+	store(1, basicBlock);								//store basic block
+
+	load(1, dataBlock);									//load datablock from where to read
+	[physicalSP - 3] = [512 + (lseek % 512)];			//return words to show
+		
+	lseek = lseek + 1;									//set lseek inc by 1
+	[currentPCB + pPFileTableIndex + 16] = lseek;		//setting lseek valud in PPOFT
+	
+	[physicalSP - 2] = -1;								//return -1 value
+	ireturn;
+endif;

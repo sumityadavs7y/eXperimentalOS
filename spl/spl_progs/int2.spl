@@ -1,0 +1,112 @@
+alias physicalSP S0;
+physicalSP = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+alias sysCallNo S1;
+sysCallNo = [physicalSP -1];
+alias filename S2;
+filename = [physicalSP - 3];
+alias currentPID S6;
+currentPID = (PTBR - 1024) / 8;
+alias currentPCB S7;
+currentPCB = READY_LIST + (currentPID * 32);
+if(sysCallNo == 2) then				//OPEN FILE
+	alias fat S3;
+	fat = FAT;
+	while(fat <= 3063) do			//checking in FAT if file is present
+		if([fat + 0] == filename) then
+			break;
+		endif;
+		fat = fat + 8;
+	endwhile;
+	if([fat + 0] != filename) then	//if not present cant open return -1
+		[physicalSP - 2] = -1;
+		ireturn;
+	endif;
+
+print([fat+0]);
+
+	alias fatEntry S4;
+	fatEntry = (fat - FAT) / 8;		//if we get this file in FAT get FAT index
+
+	alias i S5;
+	i = 0;
+	while(i < 128) do								//check in SWOFT
+		if([FILE_TABLE + i] == fatEntry) then		//check FAT entry in SWOFT if already opened
+			break;
+		endif;
+		i = i + 2;
+	endwhile;
+	if(i >= 128) then								//if not opened
+		i = 0;
+		while(i < 128) do							//search for empty entry in SWOFT
+			if([FILE_TABLE + i] == -1) then
+				break;
+			endif;
+			i = i + 2;
+		endwhile;
+		if(i >= 128) then							//if found no empty entry in SWOFT
+			[physicalSP - 2] = -1;
+			ireturn;
+		endif;
+	endif;
+	i = i / 2;									//index of SWOFT entry of file
+	
+
+print(i);
+
+	alias p S8;
+	p = 15;
+	while(p < 30) do							//check ppoft
+		if([currentPCB + p] == -1) then			//check for empty entry in ppoft
+			break;
+		endif;
+		p = p + 2;
+	endwhile;
+	if(p >= 30) then
+		[physicalSP - 2] = -1;					//return -1 if not found empty entry
+		ireturn;
+	endif;
+
+print("ppoft");
+	
+	[currentPCB + p + 0] = i;					//setting SWOFT entry index to PPOFT
+	[currentPCB + p + 1] = 0;					//setting lseek for file
+	
+	alias count S9;
+	count = (i * 2);											//get starting address of SWOFT entry
+	[FILE_TABLE + count + 0] = fatEntry;						//setting fat entry to SWOFT
+	[FILE_TABLE + count + 1] = [FILE_TABLE + count + 1] + 1;	//inc file open count by 1
+
+	[physicalSP - 2] = (p - 15) / 2;				//returning PPOFT index of opened file (file descriptor)
+	ireturn;
+else
+	if(sysCallNo == 3) then				//CLOSE
+		if(filename < 0 || filename > 7) then		//check for valid file descriptor
+			[physicalSP - 2] = -1;
+			ireturn;
+		endif;
+		
+		alias fileTableIndex S3;
+		alias pPFileTableIndex S5;
+		pPFileTableIndex = (filename * 2);						//address of entry w.r.t. of PPOFT
+		fileTableIndex = [currentPCB + pPFileTableIndex + 15];	//getting SWOFT index from PPOFT address
+		
+		if(fileTableIndex == -1) then								//check if opened or not
+			[physicalSP - 2] = -1;
+			ireturn;
+		endif;
+		
+		alias count S4;
+		count = fileTableIndex * 2;									//address of entry in SWOFT w.r.t. SWOFT
+		[FILE_TABLE + count + 1] = [FILE_TABLE + count + 1] - 1;	//dec file open count by 1 in SWOFT
+		if([FILE_TABLE + count + 1] == 0) then						//if file open count gets 0
+			[FILE_TABLE + count + 0] = 0;							//set FAT index to -1? or should be 0
+		endif;
+		[currentPCB + pPFileTableIndex + 15] = -1;					//empty the entry from PPOFT
+		[currentPCB + pPFileTableIndex + 16] = -1;					//empty lseek entry from PPOFT
+		
+		[physicalSP - 2] = 0;										//return 0 as success
+		ireturn;
+	endif;
+endif; 
+
+		

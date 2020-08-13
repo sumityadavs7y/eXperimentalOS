@@ -1,0 +1,46 @@
+alias PTBR_Process1 S0;
+
+load(7,1);  //load exception handler
+load(8,2);  //load exception handler
+
+load(23,17);    //load int7
+load(24,18);    //load int7
+load(11,5);     //load int1
+load(12,6);     //load int1
+load(9,3);      //load timer
+load(10,4);     //load timer
+[READY_LIST + 0] = 0;   //setting first process pid as 0 (RL=1536)
+load(25,21);    //load init
+load(26,22);    //load init
+load(27,23);    //load init
+PTBR = 1024;    //setting page table base register to per process page table
+PTLR = 4;       //page table length register to 4 (in XOS)
+[PTBR + 0] = 25;    //init page no in memory
+[PTBR + 1] = "01";  //Auxiliary information 0 reference bit 1 is valid bit
+[PTBR + 2] = 26;
+[PTBR + 3] = "01";
+[PTBR + 4] = 27;
+[PTBR + 5] = "01";
+[PTBR + 6] = 28;    //page no for stack
+[PTBR + 7] = "01";
+[READY_LIST + 1] = 2;   //setting to running state for init process
+SP = 3 * 512;           //address Stackpointer in PCB (logical address)
+[28 * 512] = 0;         //setting ip value for init in the stack
+[READY_LIST + 32] = 1;  //setting pid of 2nd process
+load(29,25);            //loading second process (assuming it take only one code block)
+PTBR_Process1 = 1024 + 1 * 8;   //PTBR for 2nd process 
+[PTBR_Process1 + 0] = 29;       //setting Auxiliary info of second process (logical page no)
+[PTBR_Process1 + 1] = "01";
+[PTBR_Process1 + 2] = -1;       //because it has only one code block
+[PTBR_Process1 + 3] = "00";
+[PTBR_Process1 + 4] = -1;
+[PTBR_Process1 + 5] = "00";
+[PTBR_Process1 + 6] = 30;       //setting stack to page 30
+[PTBR_Process1 + 7] = "01";
+[READY_LIST + 33] = 1;          //setting ready state for 2nd process
+[READY_LIST + 37] = PTBR_Process1;  //PTBR for second process
+[READY_LIST + 38] = 4;          //PTLR for second process
+[READY_LIST + 34] = 3 * 512;    //setting BP
+[READY_LIST + 35] = 3 * 512;    //setting SP
+[READY_LIST + 36] = 0;          //setting IP
+ireturn;

@@ -1,0 +1,131 @@
+alias physicalSP S0;
+physicalSP = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);	//getting physical SP for current process
+alias sysCallNo S1;
+sysCallNo = [physicalSP - 1];	//it gives systemCall no
+alias filename S2;
+filename = [physicalSP - 3];	//argument on this (filename)
+alias fat S3;
+fat = FAT;						//set fat to 2560
+if(sysCallNo == 1) then
+	while(fat <= 3063) do		//search fat table for that filename
+		if([fat + 0] == filename) then
+			break;
+		endif;
+		fat = fat + 8;
+	endwhile;
+	if([fat + 0] == filename) then	//if file found already created
+		[physicalSP - 2] = 0;		//return 0 as created
+		ireturn;
+	endif;
+
+	alias df S4;
+	df = 3072;
+	while(df <= 3519) do			//search empty space in disk free list
+		if([df] == 0) then
+			break;
+		endif;
+		df = df + 1;
+	endwhile;
+	if(df > 3519) then				//if free disk not found
+		[physicalSP - 2] = -1;		//return -1 as cannot be created
+		ireturn;
+	endif;
+	
+	df = df - 3072;					//if free disk found get index of disk free list
+	fat = FAT;						
+	while(fat <= 3063) do			//search for FAT empty entry
+		if([fat + 0] == -1) then
+			break;
+		endif;
+		fat = fat + 8;
+	endwhile;
+	if(fat > 3063) then				//if no empty FAT entry found
+		[physicalSP - 2] = -1;
+		ireturn;
+	endif;
+									//if FAT empty entry found
+	[fat + 0] = filename;			//setting filename
+	[fat + 1] = 0;					//setting file size
+	[fat + 2] = df;					//setting block no of disk free list
+
+	load(1, df);					//loading disk free list to scratcpad
+	alias i S5;
+	i = 512;						
+	while(i < 1024) do				//setting all words to -1?
+		[i] = -1;
+		i = i + 1;
+	endwhile;
+	store(1, df);					//setting block?
+	[df + 3072] = 1;
+	store(5, 19);					//store FAT
+	store(6, 20);					//store dfl
+	[physicalSP - 2] = 0;			//return as success
+	ireturn;
+else
+	if(sysCallNo == 4) then							//DELETE
+		while(fat <= 3063) do						//check FAT entry
+			if([fat + 0] == filename) then			//check if file is present
+				break;
+			endif;
+			fat = fat + 8;
+		endwhile;
+		if(fat >= 3063) then						//if file not present in FAT
+			[physicalSP - 2] = -1;
+			ireturn;
+		endif;
+		
+		alias fatIndex S4;
+		fatIndex = (fat - FAT) / 8;					//get FAT index
+		
+		alias i S6;
+		i = 0;
+		while(i < 128) do
+			if([FILE_TABLE + i + 0] == fatIndex) then	//check in SWOFT if file is opened
+				break;
+			endif;
+			i = i + 2;
+		endwhile;
+		if(i < 128) then								//if file is opened cant delete
+			[physicalSP - 2] = -1;
+			ireturn;
+		endif;
+		
+		alias basicBlock S5;
+		basicBlock = [fat + 2];							//get basic block block no.
+
+		alias count S8;
+		count = 0;
+		alias dataBlock S7;
+
+		load(1, basicBlock);							//load basic block to scratchpad
+		while([512 + count] != -1) do					//check all data block
+			dataBlock = [512 + count];					//get datablock from scratchpad
+			load(1, dataBlock);							//load datablock to scratchpad
+			i = 512;
+			while(i < 1024) do							//set all datablock to ""
+				[i] = "";
+				i = i + 1;
+			endwhile;
+			store(1, dataBlock);						//store datablock after truncating
+			[dataBlock + 3072] = 0;						//setting dfl entry to 0 for datablocks
+			load(1, basicBlock);						//again load basic block and delete datablock
+			count = count + 1;
+		endwhile;
+		i = 512;
+		while(i < 1024) do								//now erasing basic block
+			[i] = "";
+			i = i + 1;
+		endwhile;
+		store(1, basicBlock);							//store basic block
+		[basicBlock + 3072] = 0;						//delete entry in dfl for basicblock?should be -1
+		[fat + 0] = -1;									//delete FAT entry(filename)
+		[fat + 1] = 0;									//delete FAT entry(filesize)
+		[fat + 2] = -1;									//delete FAT entry(basicblock no)
+
+		store(5, 19);									//store FAT to disk
+		store(6, 20);									//store FAT to disk
+		[physicalSP - 2] = 0;							//return success
+		ireturn;
+	endif;
+endif;
+ireturn;
